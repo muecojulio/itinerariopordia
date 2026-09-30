@@ -2,6 +2,9 @@
   "name": "rutadias",
   "private": true,
   "version": "1.0.0",
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "icons": "node scripts/write-icons.js",
     "dev": "node scripts/write-icons.js && next dev",
