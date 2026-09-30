@@ -1,0 +1,20 @@
+{
+  "name": "RutaDías",
+  "short_name": "RutaDías",
+  "description": "Itinerario por días con voz, mapa y distancias.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#163222",
+  "theme_color": "#163222",
+  "lang": "es",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
