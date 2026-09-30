@@ -1,10 +1,11 @@
 {
   "name": "rutadias",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.0.0",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "icons": "node scripts/write-icons.js",
+    "dev": "node scripts/write-icons.js && next dev",
+    "build": "node scripts/write-icons.js && next build",
     "start": "next start"
   },
   "dependencies": {
