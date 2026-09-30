@@ -1,0 +1,20 @@
+RutaDías — cómo subir a Vercel
+
+1. Descomprime itinerario-por-dia.zip. Entra a la carpeta rutadias
+   (package.json debe estar al mismo nivel que app/, components/, lib/).
+
+2. El código ya está en el repo privado GitHub:
+   https://github.com/muecojulio/itinerariopordia
+   (privado). No lo hagas público.
+
+3. Entra a https://vercel.com/new
+   - Continúa con GitHub
+   - Importa itinerariopordia
+   - Deploy
+
+4. Cuando esté verde, abre el enlace .vercel.app en el teléfono.
+
+Opcional (la app ya funciona sin esto):
+- GROQ_API_KEY
+- UNSPLASH_ACCESS_KEY
+Vercel → Settings → Environment Variables → Redeploy.
