@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import MapView from "./MapView";
 import InstallHint from "./InstallHint";
 import VoicePanel from "./VoicePanel";
+import Switch from "./Switch";
 import { downloadExampleCsv, exportPlanWorkbook, parseItineraryFile } from "../lib/excel";
 import { datesInRange, dayNumber, formatDayLabel, formatKm, formatWalk, haversineKm, mapsUrl, walkMinutes } from "../lib/geo";
 import { cocinaEnEspanol, etiquetaTipo, tipoEnEspanol, tipsPara } from "../lib/tips";
@@ -417,9 +418,9 @@ export default function ClientApp() {
       {geoMsg ? <p className="banner">{geoMsg}</p> : null}
       {busy ? <p className="banner busy">{busy}</p> : null}
       {toast ? <p className="toast">{toast}</p> : null}
-      <main className="main">
+      <main className="main" key={tab}>
         {tab === "plan" && (
-          <section className="stack">
+          <section className="stack pane">
             <div className="card origin-card">
               <h2>Punto de partida</h2>
               <p className="origin-now">Salida: {originLabel}</p>
@@ -480,7 +481,7 @@ export default function ClientApp() {
                   <button className="btn primary" onClick={shareDay}>Compartir</button>
                   <button className="btn" onClick={exportPlan}>Exportar</button>
                   <button className="btn" onClick={enrichAll}>Mejorar textos</button>
-                  <button className="btn" onClick={notifyOn ? () => setNotifyOn(false) : enableNotify}>{notifyOn ? "Avisos on" : "Avisos"}</button>
+                  <Switch on={notifyOn} label={notifyOn ? "Avisos on" : "Avisos"} onToggle={() => (notifyOn ? setNotifyOn(false) : enableNotify())} />
                 </div>
               </div>
             ) : null}
@@ -518,12 +519,12 @@ export default function ClientApp() {
           </section>
         )}
         {tab === "mapa" && (
-          <section className="stack">
+          <section className="stack pane">
             <div className="card map-wrap"><MapView myPos={origin} places={visible} focus={focus} routeGeometry={routeData?.geometry || []} /></div>
           </section>
         )}
         {tab === "subir" && (
-          <section className="stack">
+          <section className="stack pane">
             <div className="card">
               <h2>Itinerario</h2>
               <p className="muted">Excel o CSV. Primera fila = títulos.</p>
@@ -535,12 +536,12 @@ export default function ClientApp() {
             </div>
           </section>
         )}
-        {tab === "instalar" && <InstallHint />}
+        {tab === "instalar" && <section className="stack pane"><InstallHint /></section>}
       </main>
       <p className="legal-link"><a href="/privacidad">Privacidad</a></p>
       <nav className="tabs">
         {TABS.map((t) => (
-          <button key={t.id} className={tab === t.id ? "tab on" : "tab"} onClick={() => { stopTalking(); setTab(t.id); }}>
+          <button key={t.id} className={tab === t.id ? "tab on" : "tab"} aria-pressed={tab === t.id} onClick={() => { stopTalking(); setTab(t.id); }}>
             <span className="tab-icon">{t.icon}</span>{t.label}
           </button>
         ))}
