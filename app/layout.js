@@ -1,4 +1,5 @@
 import "./globals.css";
+import "./ui-motion.css";
 
 export const metadata = {
   title: "RutaDías",
