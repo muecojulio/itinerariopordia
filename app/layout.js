@@ -14,6 +14,9 @@ export const metadata = {
   icons: {
     icon: "/icon.svg",
     apple: "/icon.svg"
+  },
+  other: {
+    "mobile-web-app-capable": "yes"
   }
 };
 
@@ -29,16 +32,6 @@ export const viewport = {
 export default function RootLayout({ children }) {
   return (
     <html lang="es">
-      <head>
-        <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <link
-          rel="stylesheet"
-          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-        />
-        <link rel="apple-touch-icon" href="/icon.svg" />
-      </head>
       <body>{children}</body>
     </html>
   );
