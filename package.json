@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "engines": {
-    "node": ">=18.17.0"
+    "node": "24.x"
   },
   "scripts": {
     "icons": "node scripts/write-icons.js",
