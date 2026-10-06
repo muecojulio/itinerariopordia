@@ -8,6 +8,7 @@
   "scripts": {
     "icons": "node scripts/write-icons.js",
     "dev": "node scripts/write-icons.js && next dev",
+    "check": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-interactions.mjs",
     "build": "node scripts/write-icons.js && next build",
     "start": "next start"
   },

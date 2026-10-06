@@ -1,38 +1,115 @@
+/* ============================================================================
+   RutaDías · sistema de interacciones y movimiento
+   Un solo lugar para: tokens de tiempo, feedback de pulsación, estados de
+   acción (cargando / éxito / error / deshabilitado), foco visible, indicadores
+   de pestañas y respeto por prefers-reduced-motion.
+   ========================================================================= */
+
 :root {
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+  --t-press: 110ms;   /* respuesta al toque: inmediata */
   --t-hover: 180ms;
-  --t-press: 100ms;
   --t-toggle: 220ms;
+  --t-tab: 220ms;
+  --t-reveal: 220ms;
+  --t-collapse: 240ms;
+  --t-pane: 210ms;    /* entrada de panel: 180-250 ms */
+  --t-toast: 220ms;
+  --ring: 3px solid #0b6b41;
+  --ring-dark: 3px solid #9fd7b6;
 }
-.btn, .chip, .tab, .tone, .hit, .switch {
-  min-height: 48px;
-  transition: transform var(--t-hover) var(--ease-out), background-color var(--t-hover) var(--ease-out), color var(--t-hover) var(--ease-out), box-shadow var(--t-hover) var(--ease-out), opacity var(--t-hover) var(--ease-out);
+
+/* ---------- Foco de teclado visible en todos los controles ---------- */
+:focus-visible { outline: var(--ring); outline-offset: 2px; border-radius: 10px; }
+.top :focus-visible,
+.reveal-panel :focus-visible,
+.weather-strip:focus-visible { outline: var(--ring-dark); outline-offset: 2px; }
+.combo-option:focus-visible { outline: var(--ring); outline-offset: -2px; }
+input:focus-visible, select:focus-visible { outline: var(--ring); outline-offset: 1px; }
+
+/* ---------- Base de controles: objetivo táctil y transiciones coherentes ---------- */
+.btn, .chip, .tab, .tone, .hit, .day-card, .switch, .collapse-toggle, .combo-option, .legal a {
+  touch-action: manipulation;
+  transition:
+    transform var(--t-hover) var(--ease-out),
+    background-color var(--t-hover) var(--ease-out),
+    color var(--t-hover) var(--ease-out),
+    border-color var(--t-hover) var(--ease-out),
+    box-shadow var(--t-hover) var(--ease-out),
+    opacity var(--t-hover) var(--ease-out);
 }
-.btn:active, .chip:active, .tab:active, .tone:active, .hit:active { transform: scale(0.96); }
-.btn.danger:active { transform: scale(0.97); opacity: 0.92; }
+.btn, .chip, .tab, .tone, .hit, .switch, .collapse-toggle { min-height: 44px; }
+.btn { position: relative; }
+.btn-label { white-space: nowrap; }
+.btn-icon { display: inline-flex; align-items: center; font-size: 0.95em; }
+
+/* ---------- Respuesta al presionar: hundimiento breve y tangible ---------- */
+.btn:active, .chip:active, .tab:active, .tone:active, .hit:active,
+.day-card:active, .switch:active, .collapse-toggle:active, .combo-option:active {
+  transition-duration: var(--t-press);
+}
+.btn:active:not(:disabled) { transform: translateY(1px) scale(0.97); box-shadow: 0 1px 3px rgba(8, 16, 10, 0.22); }
+.chip:active, .tab:active, .tone:active, .hit:active, .day-card:active { transform: scale(0.96); }
+.btn.primary:active:not(:disabled) { box-shadow: inset 0 2px 6px rgba(5, 30, 18, 0.35); }
+.btn.danger:active:not(:disabled) { opacity: 0.92; }
+
+/* ---------- Hover solo donde hay ratón: elevación sutil, nunca informativa ---------- */
 @media (hover: hover) and (pointer: fine) {
-  .btn:hover { transform: translateY(-1px); }
-  .btn.primary:hover { box-shadow: 0 6px 16px rgba(27, 122, 77, 0.28); }
-  .btn.danger:hover { background: #f6d4d0; }
-  .btn:hover:active, .chip:hover:active, .tab:hover:active { transform: scale(0.96); }
+  .btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(8, 16, 10, 0.14); }
+  .btn.primary:hover:not(:disabled) { box-shadow: 0 6px 16px rgba(27, 122, 77, 0.28); }
+  .btn.danger:hover:not(:disabled) { background: #f6d4d0; }
+  .btn:hover:active:not(:disabled), .chip:hover:active, .tab:hover:active, .tone:hover:active { transform: scale(0.96); }
   .chip:hover, .tone:hover, .hit:hover { transform: translateY(-1px); }
+  .chip:hover { border-color: #c9bda6; }
+  .day-card:hover { border-color: #b9ac93; }
+  .collapse-toggle:hover { color: var(--green2); }
 }
-.tab-icon { display: block; transition: transform var(--t-toggle) var(--ease-out); }
-.tab.on .tab-icon { transform: scale(1.12); }
-.pane { animation: pane-in 280ms var(--ease-out); }
-@keyframes pane-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+
+/* ---------- Estados de acción: cargando, éxito, error, deshabilitado ---------- */
+.btn[disabled] { cursor: not-allowed; opacity: 0.5; }
+.btn.is-busy { cursor: progress; }
+.btn.is-busy .btn-label { opacity: 0.85; }
+.btn-spinner {
+  width: 15px; height: 15px; flex: 0 0 15px; border-radius: 50%;
+  border: 2px solid currentColor; border-right-color: transparent;
+  animation: spin 720ms linear infinite;
 }
-.toast { animation: toast-in 220ms var(--ease-out); }
-@keyframes toast-in {
-  from { opacity: 0; transform: translateY(-6px); }
-  to { opacity: 1; transform: translateY(0); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.btn.is-success { box-shadow: inset 0 0 0 2px #2f8f5d; }
+.btn.is-success::after {
+  content: ""; position: absolute; inset: -3px; border-radius: inherit;
+  border: 2px solid rgba(47, 143, 93, 0.7);
+  animation: ring-out 900ms var(--ease-out) forwards;
+  pointer-events: none;
 }
+@keyframes ring-out {
+  from { opacity: 0.9; transform: scale(0.99); }
+  to { opacity: 0; transform: scale(1.03); }
+}
+
+/* El error no depende solo del color: icono, texto y un temblor muy discreto. */
+.btn.is-error { box-shadow: inset 0 0 0 2px #b42318; }
+.btn.is-error::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit;
+  animation: nudge 260ms var(--ease-soft) 1;
+  pointer-events: none;
+}
+@keyframes nudge {
+  0% { transform: translateX(0); }
+  30% { transform: translateX(-2px); }
+  60% { transform: translateX(2px); }
+  100% { transform: translateX(0); }
+}
+.switch.is-busy { opacity: 0.75; cursor: progress; }
+.switch.is-error { box-shadow: inset 0 0 0 2px var(--danger); }
+
+/* ---------- Interruptor: movimiento breve y claro ---------- */
 .switch {
   border: 0; background: #efe7d8; border-radius: 14px; padding: 8px 12px;
   display: inline-flex; align-items: center; gap: 10px;
-  font: inherit; font-weight: 700; cursor: pointer; min-height: 48px;
+  font: inherit; font-weight: 700; color: var(--ink); cursor: pointer; min-height: 48px;
 }
 .switch-track {
   width: 44px; height: 26px; border-radius: 999px; background: #cfc6b6;
@@ -45,9 +122,68 @@
   transition: transform var(--t-toggle) var(--ease-out);
 }
 .switch.on .switch-track { background: var(--green); }
+.switch.on .switch-track::after {
+  content: ""; position: absolute; right: -16px; top: 7px;
+  width: 3px; height: 3px; border-radius: 50%; background: var(--green2);
+}
 .switch.on .switch-thumb { transform: translateX(18px); }
 .switch:active .switch-thumb { transform: scale(0.92); }
 .switch.on:active .switch-thumb { transform: translateX(18px) scale(0.92); }
+
+/* ---------- Pestañas inferiores: indicador deslizante ---------- */
+.tabs-indicator {
+  position: absolute; top: 6px; bottom: calc(8px + var(--safe-bot)); left: 6px;
+  width: calc((100% - 12px) / 4); border-radius: 12px;
+  background: #e7f5ec; box-shadow: inset 0 0 0 2px rgba(27, 122, 77, 0.55);
+  transform: translateX(calc(var(--tab-index, 0) * 100%));
+  transition: transform var(--t-tab) var(--ease-out);
+  pointer-events: none;
+}
+.tab.on { font-weight: 800; }
+.tab-icon { display: block; transition: transform var(--t-toggle) var(--ease-out); }
+.tab.on .tab-icon { transform: scale(1.14); }
+
+/* ---------- Entrada y salida de paneles (corta y con fundido) ---------- */
+.pane { animation: none; }
+.pane[data-dir="1"] { animation: pane-in-right var(--t-pane) var(--ease-out) both; }
+.pane[data-dir="-1"] { animation: pane-in-left var(--t-pane) var(--ease-out) both; }
+.pane[data-dir="0"] { animation: pane-in var(--t-pane) var(--ease-out) both; }
+@keyframes pane-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes pane-in-right { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: none; } }
+@keyframes pane-in-left { from { opacity: 0; transform: translateX(-26px); } to { opacity: 1; transform: none; } }
+
+/* El contenedor de paneles sigue al dedo durante el swipe. */
+.main.dragging { will-change: transform; }
+.place.dragging .reveal-inner { transition: none; }
+.place.dragging { cursor: grabbing; }
+
+.toast { animation: toast-in var(--t-toast) var(--ease-out); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.rail-hint { animation: hint-in var(--t-toast) var(--ease-out) both; }
+@keyframes hint-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* ---------- Carriles: scroll suave solo si el usuario no pidió menos movimiento ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  .rail { scroll-behavior: smooth; }
+}
+
+/* ---------- Movimiento reducido: sin desplazamientos, rebotes ni barridos ---------- */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+  .btn:hover:not(:disabled), .btn:active:not(:disabled),
+  .chip:hover, .chip:active, .tab:active, .tone:hover, .tone:active,
+  .day-card:active, .hit:hover { transform: none !important; }
+  .rail { scroll-behavior: auto !important; scroll-snap-type: none; }
+  .rail-indicator { transition: none; }
+}
+
+/* ---------- Contraste alto: refuerza bordes de estado ---------- */
+@media (prefers-contrast: more) {
+  .chip, .day-card, .btn { border: 1px solid #241f18; }
+  .combo-option.on { box-shadow: inset 0 0 0 3px #0b3d26; }
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import ActionButton from "./ActionButton";
 
 export default function InstallHint() {
   const [deferred, setDeferred] = useState(null);
@@ -38,10 +39,14 @@ export default function InstallHint() {
     : "";
 
   async function install() {
-    if (!deferred) return;
+    if (!deferred) return { ok: false, error: "El navegador no ofreció la instalación." };
     deferred.prompt();
-    await deferred.userChoice;
+    const choice = await deferred.userChoice;
     setDeferred(null);
+    if (choice?.outcome && choice.outcome !== "accepted") {
+      return { ok: false, error: "Instalación cancelada." };
+    }
+    return { ok: true };
   }
 
   return (
@@ -55,9 +60,16 @@ export default function InstallHint() {
       {standalone ? (
         <p className="ok">Ya está instalada en este aparato.</p>
       ) : deferred ? (
-        <button className="btn primary" onClick={install}>
+        <ActionButton
+          variant="primary"
+          icon="＋"
+          busyLabel="Abriendo…"
+          onPress={install}
+          successMessage="Instalada en el dispositivo"
+          errorMessage="No se pudo instalar"
+        >
           Instalar RutaDías
-        </button>
+        </ActionButton>
       ) : ios ? (
         <ol className="steps">
           <li>Pulsa el botón Compartir de Safari.</li>
@@ -75,7 +87,7 @@ export default function InstallHint() {
       )}
 
       <div className="qr-box">
-        {qr ? <img src={qr} alt="Código QR para abrir RutaDías" /> : null}
+        {qr ? <img src={qr} alt="Código QR para abrir RutaDías" loading="lazy" /> : null}
         <div>
           <p className="muted">
             Comparte este QR. Quien lo escanee abre la app y puede instalarla.
