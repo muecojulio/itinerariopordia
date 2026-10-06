@@ -1,16 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MapView from "./MapView";
 import InstallHint from "./InstallHint";
 import VoicePanel from "./VoicePanel";
 import Switch from "./Switch";
+import ActionButton from "./ActionButton";
+import SearchSelect from "./SearchSelect";
+import DayRail from "./DayRail";
+import PlaceCard from "./PlaceCard";
 import { downloadExampleCsv, exportPlanWorkbook, parseItineraryFile } from "../lib/excel";
 import { datesInRange, dayNumber, formatDayLabel, formatKm, formatWalk, haversineKm, mapsUrl, walkMinutes } from "../lib/geo";
 import { cocinaEnEspanol, etiquetaTipo, tipoEnEspanol, tipsPara } from "../lib/tips";
 import { applyCache, clothingTip, daySummary, localISODate, minutesUntil, rememberCache, shareText } from "../lib/plan";
 import { scriptForPlaces, speakText, stopTalking } from "../lib/voice";
 import { loadState, saveState } from "../lib/idb";
+import usePressStates from "../lib/usePressStates";
+import useSwipePanels from "../lib/useSwipePanels";
+import useHorizontalRail from "../lib/useHorizontalRail";
+import { stepIndex } from "../lib/gestures";
 
 const STORAGE = "rutadias-v4";
 const TABS = [
@@ -38,11 +46,14 @@ function newTrip(name) {
 
 export default function ClientApp() {
   const [tab, setTab] = useState("plan");
+  const [dir, setDir] = useState(0);
   const [trips, setTrips] = useState([newTrip("Mi viaje")]);
   const [currentId, setCurrentId] = useState("");
   const [geoCache, setGeoCache] = useState({});
   const [cityHits, setCityHits] = useState([]);
+  const [cityLoading, setCityLoading] = useState(false);
   const [startHits, setStartHits] = useState([]);
+  const [startLoading, setStartLoading] = useState(false);
   const [startQuery, setStartQuery] = useState("");
   const [myPos, setMyPos] = useState(null);
   const [geoMsg, setGeoMsg] = useState("");
@@ -50,6 +61,7 @@ export default function ClientApp() {
   const [toneId, setToneId] = useState("natural");
   const [speaking, setSpeaking] = useState(false);
   const [dayFilter, setDayFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
   const [focus, setFocus] = useState(null);
   const [busy, setBusy] = useState("");
   const [toast, setToast] = useState("");
@@ -61,6 +73,11 @@ export default function ClientApp() {
   const [airInfo, setAirInfo] = useState(null);
   const [ready, setReady] = useState(false);
   const seenAlarms = useRef(new Set());
+  const fileRef = useRef(null);
+  const navRef = useRef(null);
+  const panesRef = useRef(null);
+  const timers = useRef({});
+  const upload = usePressStates({ successMs: 2400, errorMs: 4200 });
 
   useEffect(() => {
     let cancelled = false;
@@ -116,6 +133,10 @@ export default function ClientApp() {
     saveState(payload).catch(() => {});
   }, [trips, currentId, geoCache, notifyOn, voiceUri, toneId, ready]);
 
+  useEffect(() => () => {
+    Object.values(timers.current).forEach((t) => clearTimeout(t));
+  }, []);
+
   const trip = trips.find((t) => t.id === currentId) || trips[0];
   const start = trip?.start || localISODate();
   const end = trip?.end || start;
@@ -135,7 +156,8 @@ export default function ClientApp() {
   }
   function ping(msg) {
     setToast(msg);
-    setTimeout(() => setToast(""), 3400);
+    clearTimeout(timers.current.toast);
+    timers.current.toast = setTimeout(() => setToast(""), 3400);
   }
 
   const origin = useMemo(() => {
@@ -153,8 +175,47 @@ export default function ClientApp() {
       })
       .sort((a, b) => (a.day || 99) - (b.day || 99) || (a.excelOrder ?? 0) - (b.excelOrder ?? 0));
   }, [places, origin]);
-  const visible = decorated.filter((p) => dayFilter === "all" || String(p.day) === String(dayFilter));
+
+  const typeOptions = useMemo(() => {
+    const labels = new Map();
+    decorated.forEach((p) => {
+      const label = etiquetaTipo(p.type);
+      labels.set(label, (labels.get(label) || 0) + 1);
+    });
+    return [...labels.entries()].sort((a, b) => b[1] - a[1]);
+  }, [decorated]);
+  const activeType = typeFilter !== "all" && typeOptions.some(([label]) => label === typeFilter) ? typeFilter : "all";
+
+  const visible = useMemo(
+    () => decorated.filter((p) => (dayFilter === "all" || String(p.day) === String(dayFilter)) && (activeType === "all" || etiquetaTipo(p.type) === activeType)),
+    [decorated, dayFilter, activeType]
+  );
   const summary = useMemo(() => daySummary(visible, origin, routeData), [visible, origin, routeData]);
+
+  const dayItems = useMemo(() => {
+    const counts = new Map();
+    decorated.forEach((p) => {
+      const key = String(p.day);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    const items = [
+      {
+        id: "all",
+        label: "Todo el viaje",
+        sub: days.length === 1 ? formatDayLabel(days[0]) : `${days.length} días`,
+        count: decorated.length
+      }
+    ];
+    days.forEach((d, i) => {
+      items.push({
+        id: String(i + 1),
+        label: `Día ${i + 1}`,
+        sub: formatDayLabel(d),
+        count: counts.get(String(i + 1)) || 0
+      });
+    });
+    return items;
+  }, [days, decorated]);
 
   useEffect(() => {
     const points = (origin ? [origin, ...visible] : visible).filter((p) => p?.lat != null && p?.lon != null);
@@ -168,6 +229,8 @@ export default function ClientApp() {
   }, [origin?.lat, origin?.lon, visible.map((p) => `${p.id}:${p.lat}:${p.lon}`).join("|")]);
 
   const selectedDate = dayFilter === "all" ? (days.includes(today) ? today : days[0]) : days[Number(dayFilter) - 1];
+  const tripHolidays = useMemo(() => holidays.filter((h) => days.includes(h.date)), [holidays, days]);
+  const dayHoliday = tripHolidays.find((h) => h.date === selectedDate) || null;
 
   useEffect(() => {
     const point = cityPos || visible.find((p) => p.lat != null);
@@ -229,38 +292,59 @@ export default function ClientApp() {
   }, [ready, todayIndex]);
 
   function locate(asStart) {
-    if (!navigator.geolocation) { setGeoMsg("Este dispositivo no da ubicación."); return; }
+    if (!navigator.geolocation) { setGeoMsg("Este dispositivo no da ubicación."); return { ok: false, error: "Este dispositivo no da ubicación." }; }
     setGeoMsg("Pidiendo permiso de ubicación…");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const next = { lat: pos.coords.latitude, lon: pos.coords.longitude };
         setMyPos(next);
-        if (asStart) { patchTrip({ startSource: "gps", manualStart: null }); ping("Punto de partida: tu ubicación"); }
+        if (asStart) { patchTrip({ startSource: "gps", manualStart: null }); setGeoMsg(""); }
         setGeoMsg("GPS listo. Las distancias salen desde este punto.");
       },
       () => setGeoMsg("No pude usar el GPS. Elige un punto de partida escribiendo la dirección."),
       { enableHighAccuracy: true, timeout: 12000 }
     );
+    return { ok: true };
   }
 
-  async function searchCity(q) {
+  function searchCity(q) {
     patchTrip({ city: q });
-    if (q.trim().length < 2) { setCityHits([]); return; }
-    const r = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
-    const data = await r.json();
-    setCityHits(data.results || []);
+    clearTimeout(timers.current.city);
+    if (q.trim().length < 2) { setCityHits([]); setCityLoading(false); return; }
+    setCityLoading(true);
+    timers.current.city = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
+        const data = await r.json();
+        setCityHits(data.results || []);
+      } catch {
+        setCityHits([]);
+      } finally {
+        setCityLoading(false);
+      }
+    }, 320);
   }
   function pickCity(hit) {
     patchTrip({ city: hit.label, cityPos: { lat: hit.lat, lon: hit.lon, country: hit.country, countryCode: hit.countryCode || "" } });
     setCityHits([]);
     ping(`Ciudad: ${hit.label}`);
   }
-  async function searchStart(q) {
+  function searchStart(q) {
     setStartQuery(q);
-    if (q.trim().length < 2) { setStartHits([]); return; }
-    const r = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
-    const data = await r.json();
-    setStartHits(data.results || []);
+    clearTimeout(timers.current.start);
+    if (q.trim().length < 2) { setStartHits([]); setStartLoading(false); return; }
+    setStartLoading(true);
+    timers.current.start = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
+        const data = await r.json();
+        setStartHits(data.results || []);
+      } catch {
+        setStartHits([]);
+      } finally {
+        setStartLoading(false);
+      }
+    }, 320);
   }
   function pickStart(hit) {
     patchTrip({ startSource: "manual", manualStart: { lat: hit.lat, lon: hit.lon, label: hit.label } });
@@ -269,21 +353,22 @@ export default function ClientApp() {
     ping("Punto de partida guardado");
   }
   function listenDay() {
-    if (!visible.length) { ping("Sube un Excel primero"); return; }
+    if (!visible.length) return { ok: false, error: "Primero sube un Excel con paradas." };
     const text = scriptForPlaces(visible, { toneId, city, startLabel: originLabel });
     const res = speakText(text, { voiceUri, toneId });
-    if (!res.ok) { ping(res.error); return; }
+    if (!res.ok) return res;
     setSpeaking(true);
     setTimeout(() => setSpeaking(false), Math.min(120000, text.length * 80));
+    return { ok: true };
   }
   function listenPlace(p) {
-    speakText(scriptForPlaces([p], { toneId, city, startLabel: originLabel }), { voiceUri, toneId });
+    return speakText(scriptForPlaces([p], { toneId, city, startLabel: originLabel }), { voiceUri, toneId });
   }
 
   async function onExcel(file) {
-    if (!file) return;
-    setBusy("Leyendo Excel…");
+    if (!file) return { ok: false, error: "No elegiste ningún archivo." };
     setWarnings([]);
+    setBusy("Leyendo Excel…");
     try {
       const buf = await file.arrayBuffer();
       const parsed = parseItineraryFile(buf);
@@ -314,20 +399,25 @@ export default function ClientApp() {
         rows = rows.map((p) => byId.get(p.id) || p);
       }
       rows.forEach((p) => { if (p.lat == null) notes.push(`${p.name}: no encontré la ubicación en el mapa.`); });
+      if (!rows.length) {
+        setWarnings(notes);
+        return { ok: false, error: "El archivo no tenía paradas válidas para estas fechas." };
+      }
       setGeoCache((prev) => rememberCache(rows, prev, city));
       patchTrip({ places: rows });
       setWarnings(notes);
-      ping(`Se cargaron ${rows.length} lugares`);
-      setTab("plan");
+      setTypeFilter("all");
+      goTab("plan", -1);
+      return { ok: true, count: rows.length };
     } catch {
-      ping("No pude leer ese archivo. Usa .xlsx o .csv");
+      return { ok: false, error: "No pude leer ese archivo. Usa .xlsx o .csv." };
     } finally {
       setBusy("");
     }
   }
 
   async function loadExtras(place) {
-    if (!place.lat) { ping("Ese lugar aún no tiene mapa"); return; }
+    if (!place.lat) return { ok: false, error: "Ese lugar aún no tiene mapa." };
     setBusy("Paradas y clima…");
     try {
       const q = [place.name, city].filter(Boolean).join(" ");
@@ -342,16 +432,17 @@ export default function ClientApp() {
         places: places.map((p) => p.id === place.id ? { ...p, stops: t.stops || [], weather: w.weather, photo: ph.url ? ph : p.photo, wiki: wiki.summary ? wiki : p.wiki, air: air.air || p.air } : p)
       });
       setFocus(place);
-      setTab("mapa");
+      goTab("mapa", 1);
+      return { ok: true };
     } catch {
-      ping("No pude cargar extras");
+      return { ok: false, error: "No pude cargar los extras ahora." };
     } finally {
       setBusy("");
     }
   }
 
   async function enrichAll() {
-    if (!places.length) return;
+    if (!places.length) return { ok: false, error: "No hay paradas que mejorar." };
     setBusy("Mejorando textos…");
     try {
       const next = [];
@@ -361,50 +452,115 @@ export default function ClientApp() {
         next.push({ ...p, what: d.what || p.what, order: d.order || p.order });
       }
       patchTrip({ places: next });
-      ping("Textos actualizados");
+      return { ok: true };
     } catch {
-      ping("No pude mejorar los textos ahora");
+      return { ok: false, error: "No pude mejorar los textos ahora." };
     } finally {
       setBusy("");
     }
   }
 
   function downloadTemplate() {
-    const csv = downloadExampleCsv();
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "ejemplo-rutadias.csv";
-    a.click();
+    try {
+      const csv = downloadExampleCsv();
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "ejemplo-rutadias.csv";
+      a.click();
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "No pude generar el ejemplo." };
+    }
   }
   function exportPlan() {
-    const bytes = exportPlanWorkbook(visible, dayWeather);
-    const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${(trip?.name || "itinerario").replace(/\s+/g, "-")}.xlsx`;
-    a.click();
+    if (!visible.length) return { ok: false, error: "No hay paradas que exportar." };
+    try {
+      const bytes = exportPlanWorkbook(visible, dayWeather);
+      const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${(trip?.name || "itinerario").replace(/\s+/g, "-")}.xlsx`;
+      a.click();
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "No pude exportar el plan." };
+    }
   }
   async function shareDay() {
+    if (!visible.length) return { ok: false, error: "No hay paradas que compartir." };
     const label = dayFilter === "all" ? "Todo el viaje" : `Día ${dayFilter} · ${formatDayLabel(selectedDate || "")}`;
     const text = shareText(label, city, visible, summary, dayWeather);
     try {
-      if (navigator.share) { await navigator.share({ title: "RutaDías", text }); return; }
-    } catch {}
+      if (navigator.share) { await navigator.share({ title: "RutaDías", text }); return { ok: true }; }
+    } catch {
+      return { ok: false, error: "Se canceló el compartir." };
+    }
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
+    return { ok: true };
   }
   async function enableNotify() {
-    if (typeof Notification === "undefined") { ping("Este navegador no admite avisos"); return; }
+    if (typeof Notification === "undefined") return { ok: false, error: "Este navegador no admite avisos." };
     const perm = await Notification.requestPermission();
-    if (perm !== "granted") { ping("No diste permiso de avisos"); setNotifyOn(false); return; }
+    if (perm !== "granted") { setNotifyOn(false); return { ok: false, error: "No diste permiso de avisos." }; }
     setNotifyOn(true);
-    ping("Avisaré 20 min antes si la app está abierta");
+    return { ok: true };
   }
   function goToday() {
-    if (todayIndex < 0) { ping("Hoy no está dentro del periodo"); return; }
+    if (todayIndex < 0) return { ok: false, error: "Hoy no está dentro del periodo del viaje." };
     setDayFilter(String(todayIndex + 1));
-    setTab("plan");
+    goTab("plan", -1);
+    return { ok: true };
   }
+
+  const activeTabIndex = Math.max(0, TABS.findIndex((t) => t.id === tab));
+  const tabRef = useRef(tab);
+  useEffect(() => { tabRef.current = tab; }, [tab]);
+
+  const goTab = useCallback((id, direction) => {
+    const previous = tabRef.current;
+    if (previous === id) return;
+    stopTalking();
+    const from = TABS.findIndex((t) => t.id === previous);
+    const to = TABS.findIndex((t) => t.id === id);
+    setDir(direction ?? Math.sign(to - from));
+    tabRef.current = id;
+    setTab(id);
+  }, []);
+
+  function onNavKeyDown(event) {
+    const keys = ["ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown", "Home", "End"];
+    if (!keys.includes(event.key)) return;
+    event.preventDefault();
+    const next =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? TABS.length - 1
+          : stepIndex(activeTabIndex, event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1, TABS.length);
+    const target = TABS[next];
+    if (!target) return;
+    goTab(target.id, Math.sign(next - activeTabIndex) || 1);
+    requestAnimationFrame(() => {
+      navRef.current?.querySelectorAll('[role="tab"]')?.[next]?.focus({ preventScroll: true });
+    });
+  }
+
+  const swipeEnabled = tab !== "mapa";
+  const paneHandlers = useSwipePanels({
+    order: TABS.map((t) => t.id),
+    active: tab,
+    onChange: goTab,
+    containerRef: panesRef,
+    enabled: swipeEnabled
+  });
+
+  const typeRail = useHorizontalRail({ deps: [typeOptions.length, activeType] });
+  useEffect(() => {
+    if (activeType === "all") return;
+    typeRail.centerOn(`[data-type="${CSS.escape(activeType)}"]`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeType]);
 
   return (
     <div className="app">
@@ -413,138 +569,378 @@ export default function ClientApp() {
           <p className="eyebrow">RutaDías</p>
           <h1>{trip?.name || "Mi viaje"}</h1>
         </div>
-        <button className="btn ghost" onClick={goToday}>Hoy</button>
+        <ActionButton
+          variant="ghost"
+          icon="◉"
+          onPress={goToday}
+          successMessage="Vamos al día de hoy"
+          errorMessage="Hoy no está en el viaje"
+        >
+          Hoy
+        </ActionButton>
       </header>
-      {geoMsg ? <p className="banner">{geoMsg}</p> : null}
-      {busy ? <p className="banner busy">{busy}</p> : null}
-      {toast ? <p className="toast">{toast}</p> : null}
-      <main className="main" key={tab}>
-        {tab === "plan" && (
-          <section className="stack pane">
-            <div className="card origin-card">
-              <h2>Punto de partida</h2>
-              <p className="origin-now">Salida: {originLabel}</p>
-              <div className="start-actions">
-                <button className={startSource === "gps" ? "btn primary block" : "btn block"} onClick={() => locate(true)} type="button">Punto de partida con geolocalización</button>
-                <button className={startSource === "manual" ? "btn primary block" : "btn block"} onClick={() => patchTrip({ startSource: "manual" })} type="button">Elegir otro punto de partida</button>
-              </div>
-              {startSource === "manual" ? (
-                <>
-                  <label>Dirección o lugar de salida<input value={startQuery} placeholder="Hotel, estación, calle…" onChange={(e) => searchStart(e.target.value)} /></label>
-                  {startHits.length > 0 && (
-                    <ul className="hits">{startHits.map((h) => (<li key={`${h.lat}-${h.lon}`}><button className="hit" onClick={() => pickStart(h)}>{h.label}</button></li>))}</ul>
-                  )}
-                </>
-              ) : null}
-            </div>
-            <VoicePanel voiceUri={voiceUri} toneId={toneId} onVoice={setVoiceUri} onTone={setToneId} onListen={listenDay} speaking={speaking} />
-            <div className="card">
-              <h2>Viaje</h2>
-              <div className="row wrap">
-                <select value={trip?.id || ""} onChange={(e) => { setCurrentId(e.target.value); setDayFilter("all"); }}>
-                  {trips.map((t) => (<option key={t.id} value={t.id}>{t.name}</option>))}
-                </select>
-                <button className="btn" onClick={() => { const n = newTrip(`Viaje ${trips.length + 1}`); setTrips((prev) => [...prev, n]); setCurrentId(n.id); setDayFilter("all"); }}>Nuevo</button>
-                {trips.length > 1 ? (<button className="btn danger" onClick={() => { const rest = trips.filter((t) => t.id !== trip.id); setTrips(rest); setCurrentId(rest[0].id); }}>Borrar</button>) : null}
-              </div>
-              <label>Nombre<input value={trip?.name || ""} onChange={(e) => patchTrip({ name: e.target.value })} /></label>
-              <div className="row">
-                <label>Desde<input type="date" value={start} onChange={(e) => patchTrip({ start: e.target.value })} /></label>
-                <label>Hasta<input type="date" value={end} onChange={(e) => patchTrip({ end: e.target.value })} /></label>
-              </div>
-              <label>Ciudad del viaje<input value={city} placeholder="Lisboa, Tokio, CDMX…" onChange={(e) => searchCity(e.target.value)} /></label>
-              {cityHits.length > 0 && (<ul className="hits">{cityHits.map((h) => (<li key={`${h.lat}-${h.lon}`}><button className="hit" onClick={() => pickCity(h)}>{h.label}</button></li>))}</ul>)}
-            </div>
-            {dayWeather ? (
-              <div className="weather-strip">
-                <strong>{dayFilter === "all" ? "Clima del día" : `Día ${dayFilter}`}</strong>
-                <span>{String(dayWeather.label || "").toLowerCase()} · {Math.round(dayWeather.min)}–{Math.round(dayWeather.max)}°</span>
-                <span>{clothingTip(dayWeather)}</span>
-                {airInfo?.label ? <span>{airInfo.label}</span> : null}
-              </div>
-            ) : null}
-            <div className="chips">
-              <button className={dayFilter === "all" ? "chip on" : "chip"} onClick={() => setDayFilter("all")}>Todos</button>
-              {days.map((d, i) => (<button key={d} className={dayFilter === String(i + 1) ? "chip on" : "chip"} onClick={() => setDayFilter(String(i + 1))}>Día {i + 1}</button>))}
-            </div>
-            {visible.length > 0 ? (
-              <div className="card summary">
-                <h2>{dayFilter === "all" ? "Resumen" : `Día ${dayFilter}`}</h2>
-                <div className="metrics">
-                  <span>{summary.count} paradas</span>
-                  <span>{formatKm(summary.routeKm)} de recorrido</span>
-                  <span>{formatKm(summary.walkKm)} a pie</span>
-                  <span>{summary.walkMin} min caminando</span>
-                  <span>{summary.transportLegs} tramos en transporte</span>
+      {geoMsg ? <p className="banner" id="geo-msg" role="status">{geoMsg}</p> : null}
+      {busy ? <p className="banner busy" role="status" aria-live="polite">{busy}</p> : null}
+      {toast ? <p className="toast" role="status" aria-live="polite">{toast}</p> : null}
+      <main
+        className={swipeEnabled ? "main swipeable" : "main"}
+        ref={panesRef}
+        {...paneHandlers}
+      >
+        <div
+          className="tabpanel"
+          id="panel-plan"
+          role="tabpanel"
+          aria-labelledby="tab-plan"
+          hidden={tab !== "plan"}
+        >
+          {tab === "plan" ? (
+            <section className="stack pane" key={`plan-${dir}`} data-dir={dir}>
+              <div className="card origin-card">
+                <h2>Punto de partida</h2>
+                <p className="origin-now">Salida: {originLabel}</p>
+                <div className="start-actions">
+                  <ActionButton
+                    block
+                    variant={startSource === "gps" ? "primary" : "plain"}
+                    icon="⌖"
+                    busyLabel="Pidiendo permiso…"
+                    onPress={() => locate(true)}
+                    successMessage="Distancias desde tu GPS"
+                    errorMessage="No pude usar el GPS"
+                    aria-describedby={geoMsg ? "geo-msg" : undefined}
+                  >
+                    Punto de partida con geolocalización
+                  </ActionButton>
+                  <ActionButton
+                    block
+                    variant={startSource === "manual" ? "primary" : "plain"}
+                    icon="✎"
+                    onPress={() => { patchTrip({ startSource: "manual" }); return { ok: true }; }}
+                    successMessage="Escribe la dirección de salida"
+                  >
+                    Elegir otro punto de partida
+                  </ActionButton>
                 </div>
+                {startSource === "manual" ? (
+                  <SearchSelect
+                    id="salida"
+                    label="Dirección o lugar de salida"
+                    value={startQuery}
+                    onChangeText={searchStart}
+                    options={startHits.map((h) => ({ id: `${h.lat}-${h.lon}`, label: h.label, data: h }))}
+                    onSelect={(item) => pickStart(item.data)}
+                    placeholder="Hotel, estación, calle…"
+                    loading={startLoading}
+                    emptyMessage="Sin coincidencias. Prueba con otra dirección."
+                  />
+                ) : null}
+              </div>
+              <VoicePanel voiceUri={voiceUri} toneId={toneId} onVoice={setVoiceUri} onTone={setToneId} onListen={listenDay} speaking={speaking} />
+              <div className="card">
+                <h2>Viaje</h2>
                 <div className="row wrap">
-                  <button className="btn primary" onClick={shareDay}>Compartir</button>
-                  <button className="btn" onClick={exportPlan}>Exportar</button>
-                  <button className="btn" onClick={enrichAll}>Mejorar textos</button>
-                  <Switch on={notifyOn} label={notifyOn ? "Avisos on" : "Avisos"} onToggle={() => (notifyOn ? setNotifyOn(false) : enableNotify())} />
+                  <label className="field">
+                    <span className="field-label">Viaje activo</span>
+                    <select value={trip?.id || ""} onChange={(e) => { setCurrentId(e.target.value); setDayFilter("all"); setTypeFilter("all"); }}>
+                      {trips.map((t) => (<option key={t.id} value={t.id}>{t.name}</option>))}
+                    </select>
+                  </label>
+                  <ActionButton
+                    icon="＋"
+                    onPress={() => { const n = newTrip(`Viaje ${trips.length + 1}`); setTrips((prev) => [...prev, n]); setCurrentId(n.id); setDayFilter("all"); setTypeFilter("all"); return { ok: true }; }}
+                    successMessage="Viaje nuevo creado"
+                  >
+                    Nuevo
+                  </ActionButton>
+                  {trips.length > 1 ? (
+                    <ActionButton
+                      variant="danger"
+                      icon="✕"
+                      onPress={() => { const rest = trips.filter((t) => t.id !== trip.id); setTrips(rest); setCurrentId(rest[0].id); return { ok: true }; }}
+                      successMessage="Viaje borrado"
+                    >
+                      Borrar
+                    </ActionButton>
+                  ) : null}
                 </div>
+                <label className="field">
+                  <span className="field-label">Nombre del viaje</span>
+                  <input value={trip?.name || ""} onChange={(e) => patchTrip({ name: e.target.value })} />
+                </label>
+                <div className="row">
+                  <label className="field">
+                    <span className="field-label">Desde</span>
+                    <input type="date" value={start} onChange={(e) => patchTrip({ start: e.target.value })} />
+                  </label>
+                  <label className="field">
+                    <span className="field-label">Hasta</span>
+                    <input type="date" value={end} onChange={(e) => patchTrip({ end: e.target.value })} />
+                  </label>
+                </div>
+                <SearchSelect
+                  id="ciudad"
+                  label="Ciudad del viaje"
+                  value={city}
+                  onChangeText={searchCity}
+                  options={cityHits.map((h) => ({ id: `${h.lat}-${h.lon}`, label: h.label, data: h }))}
+                  onSelect={(item) => pickCity(item.data)}
+                  placeholder="Lisboa, Tokio, CDMX…"
+                  hint="Escribe al menos 2 letras. Se ignoran mayúsculas y acentos."
+                  loading={cityLoading}
+                  emptyMessage="Sin coincidencias. Revisa la ortografía."
+                />
               </div>
-            ) : null}
-            {warnings.length > 0 ? (<div className="card warn"><h2>Avisos</h2><ul>{warnings.map((w) => (<li key={w}>{w}</li>))}</ul></div>) : null}
-            {visible.length === 0 ? (
-              <div className="empty card">
-                <h2>Sin itinerario</h2>
-                <p>Sube el Excel del viaje. Solo se muestran esas visitas.</p>
-                <button className="btn primary block" onClick={() => setTab("subir")}>Subir Excel</button>
-              </div>
-            ) : visible.map((p, idx) => {
-              const next = visible[idx + 1];
-              const legKm = p.lat != null && next?.lat != null ? haversineKm(p, next) : null;
-              return (
-                <article key={p.id} className="place card">
-                  {p.photo?.url ? <img className="place-photo" src={p.photo.url} alt="" /> : null}
-                  <div className="place-top"><span className="tag">{idx + 1} · {etiquetaTipo(p.type)}</span><span className="day">{p.time || `Día ${p.day || "?"}`}</span></div>
-                  <h3>{p.name}</h3>
-                  {p.cuisine ? <p className="cuisine">Cocina {p.cuisine}</p> : null}
-                  {p.address ? <p className="muted">{p.address}</p> : null}
-                  <div className="metrics"><span>{formatKm(p.distanceKm)}</span><span>{formatWalk(p.walkMin)}</span></div>
-                  {p.what ? <p><strong>Qué hacer:</strong> {p.what}</p> : null}
-                  {p.order ? <p><strong>Qué pedir:</strong> {p.order}</p> : null}
-                  {legKm != null ? <p className="leg">Al siguiente: {formatKm(legKm)} · {legKm <= 1 ? "a pie" : "transporte"}</p> : null}
-                  <div className="row wrap">
-                    <a className="btn primary" href={mapsUrl(origin, p, "transit")} target="_blank" rel="noreferrer">Transporte</a>
-                    <a className="btn" href={mapsUrl(origin, p, "walk")} target="_blank" rel="noreferrer">Caminando</a>
-                    <button className="btn" onClick={() => listenPlace(p)}>Escuchar</button>
-                    <button className="btn" onClick={() => loadExtras(p)}>Mapa</button>
-                    <button className="btn danger" onClick={() => patchTrip({ places: places.filter((x) => x.id !== p.id) })}>Quitar</button>
+              {dayWeather ? (
+                <div className="weather-strip">
+                  <strong>{dayFilter === "all" ? "Clima del día" : `Día ${dayFilter}`}</strong>
+                  <span>{String(dayWeather.label || "").toLowerCase()} · {Math.round(dayWeather.min)}–{Math.round(dayWeather.max)}°</span>
+                  <span>{clothingTip(dayWeather)}</span>
+                  {airInfo?.label ? <span>{airInfo.label}</span> : null}
+                </div>
+              ) : null}
+              <DayRail
+                items={dayItems}
+                active={dayFilter}
+                onChange={(id) => setDayFilter(id)}
+                label="Días del viaje"
+              />
+              <div id="day-panel" className="day-panel" role="tabpanel" aria-labelledby={`daytab-${dayFilter}`}>
+                {typeOptions.length > 1 ? (
+                  <div
+                    className="rail-wrap chips-wrap"
+                    data-overflow={typeRail.edges.overflows ? "yes" : "no"}
+                    data-start={typeRail.edges.atStart ? "no" : "yes"}
+                    data-end={typeRail.edges.atEnd ? "no" : "yes"}
+                  >
+                    <div className="rail chips" role="group" aria-label="Filtros por tipo de parada" ref={typeRail.ref}>
+                      <button
+                        type="button"
+                        className={activeType === "all" ? "chip on" : "chip"}
+                        aria-pressed={activeType === "all"}
+                        data-type="all"
+                        onClick={() => setTypeFilter("all")}
+                      >
+                        Todos
+                      </button>
+                      {typeOptions.map(([label, count]) => (
+                        <button
+                          key={label}
+                          type="button"
+                          className={activeType === label ? "chip on" : "chip"}
+                          aria-pressed={activeType === label}
+                          data-type={label}
+                          onClick={() => setTypeFilter(activeType === label ? "all" : label)}
+                        >
+                          {label} <span className="chip-count">{count}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </article>
-              );
-            })}
-          </section>
-        )}
-        {tab === "mapa" && (
-          <section className="stack pane">
-            <div className="card map-wrap"><MapView myPos={origin} places={visible} focus={focus} routeGeometry={routeData?.geometry || []} /></div>
-          </section>
-        )}
-        {tab === "subir" && (
-          <section className="stack pane">
-            <div className="card">
-              <h2>Itinerario</h2>
-              <p className="muted">Excel o CSV. Primera fila = títulos.</p>
-              <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => onExcel(e.target.files?.[0])} />
-              <div className="row wrap">
-                <button className="btn" onClick={downloadTemplate}>Ejemplo</button>
-                <button className="btn" onClick={exportPlan}>Exportar</button>
+                ) : null}
+                {warnings.length > 0 ? (
+                  <div className="card warn">
+                    <h2>Avisos</h2>
+                    <ul>{warnings.map((w) => (<li key={w}>{w}</li>))}</ul>
+                  </div>
+                ) : null}
+                {visible.length > 0 ? (
+                  <div className="card summary">
+                    <h2>{dayFilter === "all" ? "Resumen" : `Día ${dayFilter}`}</h2>
+                    <div className="metrics">
+                      <span>{summary.count} paradas</span>
+                      <span>{formatKm(summary.routeKm)} de recorrido</span>
+                      <span>{formatKm(summary.walkKm)} a pie</span>
+                      <span>{summary.walkMin} min caminando</span>
+                      <span>{summary.transportLegs} tramos en transporte</span>
+                    </div>
+                    {dayHoliday ? (
+                      <p className="holiday-note">
+                        <strong>Festivo:</strong> {dayHoliday.name}
+                      </p>
+                    ) : null}
+                    <div className="row wrap">
+                      <ActionButton variant="primary" icon="↗" onPress={shareDay} busyLabel="Compartiendo…" successMessage="Compartido" errorMessage="No pude compartir">Compartir</ActionButton>
+                      <ActionButton icon="⇩" onPress={exportPlan} successMessage="Excel descargado" errorMessage="No pude exportar">Exportar</ActionButton>
+                      <ActionButton icon="✦" onPress={enrichAll} busyLabel="Mejorando…" successMessage="Textos actualizados" errorMessage="No pude mejorar los textos">Mejorar textos</ActionButton>
+                      <Switch on={notifyOn} label={notifyOn ? "Avisos on" : "Avisos"} onToggle={() => (notifyOn ? setNotifyOn(false) : enableNotify())} />
+                    </div>
+                  </div>
+                ) : null}
+                {visible.length === 0 ? (
+                  <div className="empty card">
+                    <h2>{decorated.length ? "Sin paradas en esta selección" : "Sin itinerario"}</h2>
+                    <p>
+                      {decorated.length
+                        ? "Este día o este filtro no tiene paradas. Elige otro día, otro tipo o Todo el viaje."
+                        : "Sube el Excel del viaje. Solo se muestran esas visitas."}
+                    </p>
+                    {decorated.length ? (
+                      <ActionButton block variant="primary" onPress={() => { setDayFilter("all"); setTypeFilter("all"); return { ok: true }; }} successMessage="Mostrando todo el viaje">
+                        Ver todo el viaje
+                      </ActionButton>
+                    ) : (
+                      <ActionButton block variant="primary" icon="↑" onPress={() => { goTab("subir", 1); return { ok: true }; }}>
+                        Subir Excel
+                      </ActionButton>
+                    )}
+                  </div>
+                ) : (
+                  <div className="places">
+                    {visible.map((p, idx) => {
+                      const next = visible[idx + 1];
+                      const legKm = p.lat != null && next?.lat != null ? haversineKm(p, next) : null;
+                      return (
+                        <PlaceCard
+                          key={p.id}
+                          place={p}
+                          position={idx + 1}
+                          legKm={legKm}
+                          origin={origin}
+                          onListen={listenPlace}
+                          onMap={loadExtras}
+                          onRemove={(place) => {
+                            patchTrip({ places: places.filter((x) => x.id !== place.id) });
+                            return { ok: true };
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+                {tripHolidays.length > 0 ? (
+                  <p className="muted tiny">
+                    Festivos en las fechas del viaje:{" "}
+                    {tripHolidays.slice(0, 4).map((h) => `${h.name} (${h.date})`).join(" · ")}
+                  </p>
+                ) : null}
               </div>
-            </div>
-          </section>
-        )}
-        {tab === "instalar" && <section className="stack pane"><InstallHint /></section>}
+            </section>
+          ) : null}
+        </div>
+
+        <div
+          className="tabpanel"
+          id="panel-mapa"
+          role="tabpanel"
+          aria-labelledby="tab-mapa"
+          hidden={tab !== "mapa"}
+        >
+          {tab === "mapa" ? (
+            <section className="stack pane" key={`mapa-${dir}`} data-dir={dir}>
+              <div className="card map-wrap">
+                <MapView myPos={origin} places={visible} focus={focus} routeGeometry={routeData?.geometry || []} />
+              </div>
+            </section>
+          ) : null}
+        </div>
+
+        <div
+          className="tabpanel"
+          id="panel-subir"
+          role="tabpanel"
+          aria-labelledby="tab-subir"
+          hidden={tab !== "subir"}
+        >
+          {tab === "subir" ? (
+            <section className="stack pane" key={`subir-${dir}`} data-dir={dir}>
+              <div className="card">
+                <h2>Itinerario</h2>
+                <p className="muted">Excel o CSV. Primera fila = títulos.</p>
+                <ActionButton
+                  block
+                  variant="primary"
+                  icon="↑"
+                  status={upload.state}
+                  statusMessage={upload.message}
+                  busyLabel={busy || "Leyendo archivo…"}
+                  announceBusy={false}
+                  onPress={() => { fileRef.current?.click(); }}
+                  successMessage="Itinerario cargado"
+                  errorMessage="No pude leer el archivo"
+                >
+                  Subir Excel o CSV
+                </ActionButton>
+                <input
+                  ref={fileRef}
+                  className="sr-only"
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  tabIndex={-1}
+                  aria-hidden="true"
+                  onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (!file) return;
+                    await upload.run(
+                      async () => {
+                        const res = await onExcel(file);
+                        if (res?.ok) {
+                          ping(`Se cargaron ${res.count} lugares`);
+                          return { ok: true };
+                        }
+                        return { ok: false, error: res?.error || "No pude leer el archivo." };
+                      },
+                      { success: "Itinerario cargado" }
+                    );
+                  }}
+                />
+                <div className="row wrap">
+                  <ActionButton icon="⇩" onPress={downloadTemplate} successMessage="Ejemplo descargado" errorMessage="No pude generar el ejemplo">Ejemplo</ActionButton>
+                  <ActionButton icon="⇧" onPress={exportPlan} successMessage="Excel exportado" errorMessage="No pude exportar">Exportar</ActionButton>
+                </div>
+                {warnings.length > 0 ? (
+                  <div className="warn-inline">
+                    <strong>Avisos del archivo</strong>
+                    <ul>{warnings.slice(0, 6).map((w) => (<li key={w}>{w}</li>))}</ul>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
+        </div>
+
+        <div
+          className="tabpanel"
+          id="panel-instalar"
+          role="tabpanel"
+          aria-labelledby="tab-instalar"
+          hidden={tab !== "instalar"}
+        >
+          {tab === "instalar" ? (
+            <section className="stack pane" key={`instalar-${dir}`} data-dir={dir}>
+              <InstallHint />
+            </section>
+          ) : null}
+        </div>
       </main>
       <p className="legal-link"><a href="/privacidad">Privacidad</a></p>
-      <nav className="tabs">
-        {TABS.map((t) => (
-          <button key={t.id} className={tab === t.id ? "tab on" : "tab"} aria-pressed={tab === t.id} onClick={() => { stopTalking(); setTab(t.id); }}>
-            <span className="tab-icon">{t.icon}</span>{t.label}
-          </button>
-        ))}
+      <nav className="tabs" role="tablist" aria-label="Secciones de la app" ref={navRef} onKeyDown={onNavKeyDown}>
+        <span
+          className="tabs-indicator"
+          aria-hidden="true"
+          data-ready="yes"
+          style={{ "--tab-index": activeTabIndex }}
+        />
+        {TABS.map((t) => {
+          const on = tab === t.id;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              id={`tab-${t.id}`}
+              className={on ? "tab on" : "tab"}
+              aria-selected={on ? "true" : "false"}
+              aria-controls={`panel-${t.id}`}
+              tabIndex={on ? 0 : -1}
+              onClick={() => goTab(t.id)}
+            >
+              <span className="tab-icon" aria-hidden="true">{t.icon}</span>
+              <span className="tab-label">{t.label}</span>
+            </button>
+          );
+        })}
       </nav>
     </div>
   );

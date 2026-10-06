@@ -20,12 +20,12 @@ export const metadata = {
   }
 };
 
+// Accesibilidad: no se limita la escala máxima ni se bloquea el pellizco.
+// Bloquear el zoom impide ampliar a quien lo necesita.
 export const viewport = {
   themeColor: "#163222",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
   viewportFit: "cover"
 };
 

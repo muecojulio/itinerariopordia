@@ -47,7 +47,7 @@ export default function Privacidad() {
       <h2>Menores</h2>
       <p>La app no está dirigida a menores de 13 años.</p>
       <p>
-        <a href="/">Volver a RutaDías</a>
+        <a className="legal-back" href="/">← Volver a RutaDías</a>
       </p>
     </main>
   );

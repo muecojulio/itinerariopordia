@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
+import ActionButton from "./ActionButton";
 import { TONES, spanishVoices, speakText, stopTalking } from "../lib/voice";
 
 export default function VoicePanel({
@@ -12,6 +13,7 @@ export default function VoicePanel({
   speaking
 }) {
   const [voices, setVoices] = useState([]);
+  const toneGroupId = useId();
 
   useEffect(() => {
     function load() {
@@ -25,7 +27,7 @@ export default function VoicePanel({
   }, []);
 
   function preview() {
-    speakText("Hola. Así se escucha esta voz en español, con el tono elegido.", {
+    return speakText("Hola. Así se escucha esta voz en español, con el tono elegido.", {
       voiceUri,
       toneId
     });
@@ -38,8 +40,8 @@ export default function VoicePanel({
         Usa las voces del propio teléfono. Cambia el tipo y el tono, escucha
         una prueba y luego el día entero.
       </p>
-      <label>
-        Tipo de voz
+      <label className="field">
+        <span className="field-label">Tipo de voz</span>
         <select value={voiceUri} onChange={(e) => onVoice(e.target.value)}>
           <option value="">Automática (español)</option>
           {voices.map((v) => (
@@ -53,29 +55,47 @@ export default function VoicePanel({
         Si no ves varias voces, el aparato solo tiene una. En iPhone se añaden
         en Ajustes → Accesibilidad → Contenido leído → Voces.
       </p>
-      <div className="tone-grid">
+      <div className="tone-grid" role="group" aria-labelledby={toneGroupId}>
+        <p className="sr-only" id={toneGroupId}>
+          Tono de lectura
+        </p>
         {TONES.map((t) => (
           <button
             key={t.id}
             className={toneId === t.id ? "tone on" : "tone"}
             onClick={() => onTone(t.id)}
             type="button"
+            aria-pressed={toneId === t.id ? "true" : "false"}
           >
             <strong>{t.label}</strong>
             <span>{t.hint}</span>
+            {toneId === t.id ? <span className="tone-mark" aria-hidden="true">✓</span> : null}
           </button>
         ))}
       </div>
       <div className="row wrap">
-        <button className="btn" onClick={preview} type="button">
+        <ActionButton
+          icon="🔊"
+          onPress={preview}
+          successMessage="Prueba de voz"
+          errorMessage="No pude usar la voz del dispositivo"
+        >
           Probar voz
-        </button>
-        <button className="btn primary" onClick={onListen} type="button">
+        </ActionButton>
+        <ActionButton
+          variant="primary"
+          icon="▶"
+          status={speaking ? "busy" : "idle"}
+          busyLabel="Leyendo…"
+          onPress={onListen}
+          successMessage="Lectura en curso"
+          errorMessage="No pude leer el día"
+        >
           {speaking ? "Leyendo…" : "Escuchar el día"}
-        </button>
-        <button className="btn" onClick={stopTalking} type="button">
+        </ActionButton>
+        <ActionButton icon="■" onPress={() => { stopTalking(); return { ok: true }; }} successMessage="Lectura detenida">
           Callar
-        </button>
+        </ActionButton>
       </div>
     </div>
   );
