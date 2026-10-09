@@ -5,7 +5,7 @@ import ActionButton from "./ActionButton";
 import Collapsible from "./Collapsible";
 import useSwipeReveal from "../lib/useSwipeReveal";
 import { formatKm, formatWalk, mapsUrl } from "../lib/geo";
-import { etiquetaTipo, tipsPara } from "../lib/tips";
+import { etiquetaTipo, tipoEnEspanol, tipsPara } from "../lib/tips";
 
 /**
  * Tarjeta de parada.
@@ -19,6 +19,17 @@ import { etiquetaTipo, tipsPara } from "../lib/tips";
  *   se anuncia.
  * - En escritorio las acciones se muestran en línea (no se depende del swipe).
  */
+const KIND_EMOJI = {
+  restaurante: "🍽️",
+  cafe: "☕",
+  museo: "🏛️",
+  parque: "🌳",
+  mercado: "🧺",
+  hotel: "🛏️",
+  visita: "📸",
+  otro: "📍"
+};
+
 export default function PlaceCard({
   place,
   position,
@@ -46,8 +57,9 @@ export default function PlaceCard({
       <button
         type="button"
         className="reveal-toggle"
-        aria-expanded={reveal.open ? "true" : "false"}
+        aria-expanded={expanded ? "true" : "false"}
         aria-controls={actionsId}
+        hidden={reveal.desktop}
         onClick={reveal.toggle}
       >
         <span className="reveal-toggle-dots" aria-hidden="true">
@@ -108,8 +120,8 @@ export default function PlaceCard({
           <img className="place-photo" src={place.photo.url} alt="" loading="lazy" />
         ) : null}
         <div className="place-top">
-          <span className="tag">
-            {position} · {etiquetaTipo(place.type)}
+          <span className="tag" data-kind={tipoEnEspanol(place.type)}>
+            <span aria-hidden="true">{KIND_EMOJI[tipoEnEspanol(place.type)] || "📍"}</span> {position} · {etiquetaTipo(place.type)}
           </span>
           <span className="day">{place.time || `Día ${place.day || "?"}`}</span>
         </div>
@@ -153,7 +165,7 @@ export default function PlaceCard({
         ) : null}
         {legKm != null ? (
           <p className="leg">
-            Al siguiente: {formatKm(legKm)} · {legKm <= 1 ? "a pie" : "transporte"}
+            <span aria-hidden="true">{legKm <= 1 ? "🚶" : "🚌"}</span> Al siguiente: {formatKm(legKm)} · {legKm <= 1 ? "a pie" : "transporte"}
           </p>
         ) : null}
       </div>

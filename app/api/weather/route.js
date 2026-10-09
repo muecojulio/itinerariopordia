@@ -1,13 +1,17 @@
-import { cacheGet, cacheSet, jsonCached } from "../../../lib/server-cache";
-import { finiteNum } from "../../../lib/security";
+import { cacheGet, cacheSet, jsonCached, jsonNoStore } from "../../../lib/server-cache";
+import { clientKey, finiteNum, rateLimit, validCoord, validISODate } from "../../../lib/security";
 
 export async function GET(req) {
+  if (!rateLimit(`weather:${clientKey(req)}`, 40)) {
+    return jsonNoStore({ weather: null }, 429);
+  }
   const { searchParams } = new URL(req.url);
   const lat = finiteNum(searchParams.get("lat"));
   const lon = finiteNum(searchParams.get("lon"));
-  const date = searchParams.get("date") || "";
+  const rawDate = searchParams.get("date") || "";
+  const date = validISODate(rawDate) ? rawDate : "";
 
-  if (lat == null || lon == null) return jsonCached({ weather: null }, 60);
+  if (!validCoord(lat, lon)) return jsonCached({ weather: null }, 60);
 
   const key = `w:${lat.toFixed(3)}:${lon.toFixed(3)}:${date}`;
   const hit = cacheGet(key);

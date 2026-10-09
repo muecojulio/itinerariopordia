@@ -1,13 +1,22 @@
 import { tipsPara, cocinaEnEspanol, tipoEnEspanol } from "../../../lib/tips";
 import { jsonNoStore } from "../../../lib/server-cache";
-import { clientKey, rateLimit } from "../../../lib/security";
+import { clampText, clientKey, rateLimit } from "../../../lib/security";
 
 export async function POST(req) {
   if (!rateLimit(`enrich:${clientKey(req)}`, 20)) {
     return jsonNoStore({ what: "", order: "", usedAI: false }, 429);
   }
   const body = await req.json().catch(() => ({}));
-  const place = body.place || {};
+  // Los campos van a un LLM: se recortan para evitar prompts desmedidos.
+  const place = {
+    name: clampText(body.place?.name || "", 160),
+    type: clampText(body.place?.type || "", 40),
+    cuisine: clampText(body.place?.cuisine || "", 80),
+    address: clampText(body.place?.address || "", 260),
+    what: clampText(body.place?.what || "", 400),
+    order: clampText(body.place?.order || "", 400)
+  };
+  const city = clampText(body.city || "", 120);
   const tipo = tipoEnEspanol(place.type);
   const cocina = cocinaEnEspanol(place.cuisine);
   const fallback = tipsPara(tipo, cocina);
@@ -44,7 +53,7 @@ export async function POST(req) {
               tipo,
               cocina,
               direccion: place.address,
-              ciudad: body.city || ""
+              ciudad: city
             })
           }
         ]

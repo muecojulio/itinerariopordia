@@ -102,6 +102,7 @@ export default function DayRail({ items, active, onChange, label = "Días del vi
               tabIndex={on ? 0 : -1}
               onClick={() => onChange(item.id)}
             >
+              {item.today ? <span className="day-card-today">Hoy</span> : null}
               <span className="day-card-label">{item.label}</span>
               {item.sub ? <span className="day-card-sub">{item.sub}</span> : null}
               <span className="day-card-count">

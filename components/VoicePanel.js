@@ -4,6 +4,14 @@ import { useEffect, useId, useState } from "react";
 import ActionButton from "./ActionButton";
 import { TONES, spanishVoices, speakText, stopTalking } from "../lib/voice";
 
+const TONE_EMOJI = {
+  tranquilo: "🌿",
+  natural: "💬",
+  guia: "🎧",
+  formal: "🎩",
+  energico: "⚡"
+};
+
 export default function VoicePanel({
   voiceUri,
   toneId,
@@ -67,7 +75,7 @@ export default function VoicePanel({
             type="button"
             aria-pressed={toneId === t.id ? "true" : "false"}
           >
-            <strong>{t.label}</strong>
+            <strong><span aria-hidden="true">{TONE_EMOJI[t.id] || ""}</span> {t.label}</strong>
             <span>{t.hint}</span>
             {toneId === t.id ? <span className="tone-mark" aria-hidden="true">✓</span> : null}
           </button>

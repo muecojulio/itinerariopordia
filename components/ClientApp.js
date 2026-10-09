@@ -10,7 +10,7 @@ import SearchSelect from "./SearchSelect";
 import DayRail from "./DayRail";
 import PlaceCard from "./PlaceCard";
 import { downloadExampleCsv, exportPlanWorkbook, parseItineraryFile } from "../lib/excel";
-import { datesInRange, dayNumber, formatDayLabel, formatKm, formatWalk, haversineKm, mapsUrl, walkMinutes } from "../lib/geo";
+import { datesInRange, dayNumber, formatDayLabel, formatKm, haversineKm, walkMinutes } from "../lib/geo";
 import { cocinaEnEspanol, etiquetaTipo, tipoEnEspanol, tipsPara } from "../lib/tips";
 import { applyCache, clothingTip, daySummary, localISODate, minutesUntil, rememberCache, shareText } from "../lib/plan";
 import { scriptForPlaces, speakText, stopTalking } from "../lib/voice";
@@ -22,11 +22,23 @@ import { stepIndex } from "../lib/gestures";
 
 const STORAGE = "rutadias-v4";
 const TABS = [
-  { id: "plan", label: "Plan", icon: "▣" },
-  { id: "mapa", label: "Mapa", icon: "◎" },
-  { id: "subir", label: "Excel", icon: "↑" },
-  { id: "instalar", label: "App", icon: "+" }
+  { id: "plan", label: "Plan", icon: "🗓️" },
+  { id: "mapa", label: "Mapa", icon: "🗺️" },
+  { id: "subir", label: "Excel", icon: "📤" },
+  { id: "instalar", label: "App", icon: "📲" }
 ];
+
+function weatherEmoji(code) {
+  if (code == null) return "🌤️";
+  if (code === 0) return "☀️";
+  if (code <= 2) return "⛅";
+  if (code === 3) return "☁️";
+  if (code <= 48) return "🌫️";
+  if (code <= 67) return "🌧️";
+  if (code <= 77) return "❄️";
+  if (code <= 82) return "🌦️";
+  return "⛈️";
+}
 
 function newTrip(name) {
   const t = localISODate();
@@ -211,11 +223,12 @@ export default function ClientApp() {
         id: String(i + 1),
         label: `Día ${i + 1}`,
         sub: formatDayLabel(d),
-        count: counts.get(String(i + 1)) || 0
+        count: counts.get(String(i + 1)) || 0,
+        today: d === today
       });
     });
     return items;
-  }, [days, decorated]);
+  }, [days, decorated, today]);
 
   useEffect(() => {
     const points = (origin ? [origin, ...visible] : visible).filter((p) => p?.lat != null && p?.lon != null);
@@ -371,7 +384,7 @@ export default function ClientApp() {
     setBusy("Leyendo Excel…");
     try {
       const buf = await file.arrayBuffer();
-      const parsed = parseItineraryFile(buf);
+      const parsed = await parseItineraryFile(buf);
       const notes = [...(parsed.warnings || [])];
       let rows = parsed.rows.map((row) => {
         const date = row.date || (row.day && days[row.day - 1] ? days[row.day - 1] : "");
@@ -390,11 +403,15 @@ export default function ClientApp() {
       rows = rows.filter((p) => p.name && (p.day || p.date) && (!p.day || (p.day >= 1 && p.day <= days.length)) && (!p.date || !days.length || days.includes(p.date)));
       rows = applyCache(rows, geoCache, city);
       const pending = rows.filter((p) => p.lat == null || p.lon == null);
-      if (pending.length) {
-        setBusy(`Buscando mapa de ${pending.length} lugares…`);
-        const r = await fetch("/api/geocode", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: pending, city }) });
+      // El servidor geocodifica lotes de 24 (pausa de uso justo de Nominatim);
+      // aquí se trocea para no perder paradas en itinerarios grandes.
+      const BATCH = 24;
+      for (let i = 0; i < pending.length; i += BATCH) {
+        const part = pending.slice(i, i + BATCH);
+        setBusy(`Buscando mapa de ${pending.length} lugares (${Math.min(i + BATCH, pending.length)} de ${pending.length})…`);
+        const r = await fetch("/api/geocode", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: part, city }) });
         const data = await r.json();
-        const found = data.items || pending;
+        const found = data.items || part;
         const byId = new Map(found.map((p) => [p.id, p]));
         rows = rows.map((p) => byId.get(p.id) || p);
       }
@@ -409,8 +426,14 @@ export default function ClientApp() {
       setTypeFilter("all");
       goTab("plan", -1);
       return { ok: true, count: rows.length };
-    } catch {
-      return { ok: false, error: "No pude leer ese archivo. Usa .xlsx o .csv." };
+    } catch (err) {
+      return {
+        ok: false,
+        error:
+          err?.code === "LEGACY_XLS"
+            ? err.message
+            : "No pude leer ese archivo. Usa .xlsx o .csv."
+      };
     } finally {
       setBusy("");
     }
@@ -473,10 +496,10 @@ export default function ClientApp() {
       return { ok: false, error: "No pude generar el ejemplo." };
     }
   }
-  function exportPlan() {
+  async function exportPlan() {
     if (!visible.length) return { ok: false, error: "No hay paradas que exportar." };
     try {
-      const bytes = exportPlanWorkbook(visible, dayWeather);
+      const bytes = await exportPlanWorkbook(visible, dayWeather);
       const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
@@ -566,7 +589,7 @@ export default function ClientApp() {
     <div className="app">
       <header className="top">
         <div>
-          <p className="eyebrow">RutaDías</p>
+          <p className="eyebrow"><span aria-hidden="true">✈️</span> RutaDías</p>
           <h1>{trip?.name || "Mi viaje"}</h1>
         </div>
         <ActionButton
@@ -693,10 +716,11 @@ export default function ClientApp() {
               </div>
               {dayWeather ? (
                 <div className="weather-strip">
+                  <span className="weather-emoji" aria-hidden="true">{weatherEmoji(dayWeather.code)}</span>
                   <strong>{dayFilter === "all" ? "Clima del día" : `Día ${dayFilter}`}</strong>
                   <span>{String(dayWeather.label || "").toLowerCase()} · {Math.round(dayWeather.min)}–{Math.round(dayWeather.max)}°</span>
                   <span>{clothingTip(dayWeather)}</span>
-                  {airInfo?.label ? <span>{airInfo.label}</span> : null}
+                  {airInfo?.label ? <span>🍃 {airInfo.label}</span> : null}
                 </div>
               ) : null}
               <DayRail
@@ -769,7 +793,8 @@ export default function ClientApp() {
                 ) : null}
                 {visible.length === 0 ? (
                   <div className="empty card">
-                    <h2>{decorated.length ? "Sin paradas en esta selección" : "Sin itinerario"}</h2>
+                    <p className="empty-emoji" aria-hidden="true">{decorated.length ? "🔎" : "🧳"}</p>
+                    <h2>{decorated.length ? "Sin paradas en esta selección" : "¡Tu aventura empieza aquí!"}</h2>
                     <p>
                       {decorated.length
                         ? "Este día o este filtro no tiene paradas. Elige otro día, otro tipo o Todo el viaje."
@@ -844,9 +869,10 @@ export default function ClientApp() {
         >
           {tab === "subir" ? (
             <section className="stack pane" key={`subir-${dir}`} data-dir={dir}>
-              <div className="card">
+              <div className="card upload-card">
                 <h2>Itinerario</h2>
                 <p className="muted">Excel o CSV. Primera fila = títulos.</p>
+                <p className="muted tiny">Formatos: .xlsx o .csv (el .xls viejo de 1997-2003 ya no se admite).</p>
                 <ActionButton
                   block
                   variant="primary"
@@ -865,7 +891,7 @@ export default function ClientApp() {
                   ref={fileRef}
                   className="sr-only"
                   type="file"
-                  accept=".xlsx,.xls,.csv"
+                  accept=".xlsx,.csv"
                   tabIndex={-1}
                   aria-hidden="true"
                   onChange={async (event) => {

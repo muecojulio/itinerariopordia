@@ -1,19 +1,28 @@
+import { clientKey, finiteNum, rateLimit, validCoord } from "../../../lib/security";
+import { jsonNoStore } from "../../../lib/server-cache";
+
 const VALHALLA = "https://valhalla1.openstreetmap.de/route";
 const OSRM = "https://router.project-osrm.org/route/v1/driving";
+const EMPTY = { ok: false, distanceKm: 0, durationMin: 0, legs: [], geometry: [] };
+const MAX_POINTS = 30;
 
 export async function POST(req) {
+  if (!rateLimit(`route:${clientKey(req)}`, 12)) {
+    return jsonNoStore(EMPTY, 429);
+  }
   const body = await req.json().catch(() => ({}));
-  const points = Array.isArray(body.points)
-    ? body.points.filter((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lon)))
-    : [];
-  if (points.length < 2) return Response.json({ ok: false, distanceKm: 0, durationMin: 0, legs: [], geometry: [] });
+  const points = (Array.isArray(body.points) ? body.points : [])
+    .slice(0, MAX_POINTS)
+    .map((p) => ({ lat: finiteNum(p?.lat), lon: finiteNum(p?.lon) }))
+    .filter((p) => validCoord(p.lat, p.lon));
+  if (points.length < 2) return jsonNoStore(EMPTY);
 
   try {
     const r = await fetch(VALHALLA, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        locations: points.map((p) => ({ lat: Number(p.lat), lon: Number(p.lon) })),
+        locations: points.map((p) => ({ lat: p.lat, lon: p.lon })),
         costing: "pedestrian",
         units: "kilometers",
         directions_options: { units: "kilometers" }
@@ -28,7 +37,7 @@ export async function POST(req) {
           distanceKm: Number(leg.summary?.length || 0),
           durationMin: Number(leg.summary?.time || 0) / 60
         }));
-        return Response.json({
+        return jsonNoStore({
           ok: true,
           provider: "Valhalla",
           distanceKm: Number(trip.summary?.length || 0),
@@ -51,7 +60,7 @@ export async function POST(req) {
           distanceKm: Number(leg.distance || 0) / 1000,
           durationMin: (Number(leg.distance || 0) / 1000 / 4.4) * 60
         }));
-        return Response.json({
+        return jsonNoStore({
           ok: true,
           provider: "OSRM",
           distanceKm: Number(route.distance || 0) / 1000,
@@ -63,7 +72,7 @@ export async function POST(req) {
     }
   } catch {}
 
-  return Response.json({ ok: false, distanceKm: 0, durationMin: 0, legs: [], geometry: [] });
+  return jsonNoStore(EMPTY);
 }
 
 function decodePolyline6(str) {
