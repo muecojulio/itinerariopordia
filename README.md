@@ -1,6 +1,12 @@
 # RutaDías
 
 Itinerario por día a partir de Excel/CSV, con ruta, clima, voz, mapa e instalación PWA.
+Interfaz «bitácora viva»: aurora animada, tarjetas-sticker y color por tipo de parada.
+
+## Pila
+
+Next.js 16 + React 19. Excel con **exceljs** (xlsx) y **papaparse** (csv) — se
+sustituyó SheetJS/xlsx por sus CVEs sin parche. Mapa con Leaflet.
 
 ## Vercel
 
@@ -9,6 +15,18 @@ Importa este repo. Framework Next.js. Keys opcionales: `GROQ_API_KEY`, `UNSPLASH
 ## Excel
 
 Columnas: Dia, Fecha, Hora, Lugar, Tipo, Cocina, Direccion, Que_hacer, Pedir, Notas, Horario, Lat, Lon.
+
+Formatos admitidos: **.xlsx** y **.csv** (UTF-8, con o sin BOM). El **.xls
+antiguo (1997-2003) ya no se admite**: guárdalo como .xlsx o expórtalo a .csv.
+
+## Seguridad
+
+- `npm audit` limpio (Next 16 = postcss parcheado; uuid fijado a 11.1.1+ vía overrides).
+- Cabeceras: CSP (sin `unsafe-eval` en producción), HSTS, anti-clickjacking,
+  `Referrer-Policy`, `Permissions-Policy`.
+- Endpoints con límite de frecuencia por IP, validación de coordenadas y
+  recorte de textos; radio de Overpass y número de puntos de ruta acotados.
+
 
 ## Sistema de interacciones
 

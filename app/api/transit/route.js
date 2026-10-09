@@ -1,14 +1,25 @@
+import { clampInt, clampText, clientKey, finiteNum, rateLimit, validCoord } from "../../../lib/security";
+import { cacheGet, cacheSet, jsonCached, jsonNoStore } from "../../../lib/server-cache";
+
 const UA = "RutaDias/1.0 (viaje personal)";
 
 export async function GET(req) {
-  const { searchParams } = new URL(req.url);
-  const lat = Number(searchParams.get("lat"));
-  const lon = Number(searchParams.get("lon"));
-  const radius = Number(searchParams.get("radius") || 700);
-
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-    return Response.json({ stops: [] });
+  if (!rateLimit(`transit:${clientKey(req)}`, 25)) {
+    return jsonNoStore({ stops: [] }, 429);
   }
+  const { searchParams } = new URL(req.url);
+  const lat = finiteNum(searchParams.get("lat"));
+  const lon = finiteNum(searchParams.get("lon"));
+  // Radio limitado: un radio enorme convierte la petición en un DoS contra Overpass.
+  const radius = clampInt(searchParams.get("radius"), 150, 1500, 700);
+
+  if (!validCoord(lat, lon)) {
+    return jsonCached({ stops: [] }, 60);
+  }
+
+  const ck = `tr:${lat.toFixed(3)}:${lon.toFixed(3)}:${radius}`;
+  const cached = cacheGet(ck);
+  if (cached) return jsonCached(cached, 1800);
 
   const query = `
     [out:json][timeout:20];
@@ -32,7 +43,7 @@ export async function GET(req) {
       },
       body: `data=${encodeURIComponent(query)}`
     });
-    if (!r.ok) return Response.json({ stops: [] });
+    if (!r.ok) return jsonCached({ stops: [] }, 120);
     const data = await r.json();
     const stops = (data.elements || [])
       .map((el) => {
@@ -40,7 +51,7 @@ export async function GET(req) {
         const kind = labelStop(t);
         return {
           id: String(el.id),
-          name: t.name || t.ref || kind,
+          name: clampText(t.name || t.ref || kind, 120),
           kind,
           lat: el.lat,
           lon: el.lon
@@ -49,9 +60,9 @@ export async function GET(req) {
       .filter((s) => s.lat)
       .filter((s, i, arr) => arr.findIndex((x) => x.name === s.name) === i)
       .slice(0, 8);
-    return Response.json({ stops });
+    return jsonCached(cacheSet(ck, { stops }, 1800000), 1800);
   } catch {
-    return Response.json({ stops: [] });
+    return jsonCached({ stops: [] }, 120);
   }
 }
 

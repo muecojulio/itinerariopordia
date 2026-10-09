@@ -58,8 +58,8 @@ export default function MapView({ myPos, places, focus, routeGeometry = [] }) {
     if (myPos?.lat != null) {
       const here = L.circleMarker([myPos.lat, myPos.lon], {
         radius: 9,
-        color: "#1f6f4a",
-        fillColor: "#7dcaa6",
+        color: "#c2165b",
+        fillColor: "#ffb088",
         fillOpacity: 1,
         weight: 3
       }).addTo(layer);
@@ -70,15 +70,15 @@ export default function MapView({ myPos, places, focus, routeGeometry = [] }) {
     const located = places.filter((p) => p.lat != null && p.lon != null);
     if (routeGeometry.length >= 2) {
       L.polyline(routeGeometry, {
-        color: "#1f6f4a",
+        color: "#7c4dff",
         weight: 5,
-        opacity: 0.82
+        opacity: 0.85
       }).addTo(layer);
       routeGeometry.forEach((pt) => bounds.push(pt));
     } else if (located.length >= 2) {
       L.polyline(
         located.map((p) => [p.lat, p.lon]),
-        { color: "#1f6f4a", weight: 4, opacity: 0.75, dashArray: "8 7" }
+        { color: "#f43370", weight: 4, opacity: 0.75, dashArray: "8 7" }
       ).addTo(layer);
     }
 

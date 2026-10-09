@@ -1,4 +1,4 @@
-const CACHE = "rutadias-v3";
+const CACHE = "rutadias-v5";
 const CORE = ["/manifest.json", "/icon.svg"];
 
 self.addEventListener("install", (event) => {

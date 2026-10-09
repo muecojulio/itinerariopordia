@@ -88,7 +88,17 @@ export async function POST(req) {
     return jsonNoStore({ items: [] }, 429);
   }
   const body = await req.json().catch(() => ({}));
-  const items = Array.isArray(body.items) ? body.items.slice(0, 40) : [];
+  // 24 ítems ≈ 27 s por la pausa de uso justo de Nominatim: cabe en los
+  // límites de ejecución serverless. El cliente trocea lotes mayores.
+  const items = (Array.isArray(body.items) ? body.items : []).slice(0, 24).map((item) => ({
+    ...item,
+    id: clampText(item?.id || "", 80),
+    name: clampText(item?.name || "", 160),
+    address: clampText(item?.address || "", 260),
+    opening: clampText(item?.opening || "", 160),
+    lat: Number.isFinite(Number(item?.lat)) ? Number(item.lat) : null,
+    lon: Number.isFinite(Number(item?.lon)) ? Number(item.lon) : null
+  }));
   const city = clampText(body.city || "", 120);
   const out = [];
 

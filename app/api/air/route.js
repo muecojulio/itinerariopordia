@@ -1,5 +1,5 @@
 import { cacheGet, cacheSet, jsonCached, jsonNoStore } from "../../../lib/server-cache";
-import { clientKey, finiteNum, rateLimit } from "../../../lib/security";
+import { clientKey, finiteNum, rateLimit, validCoord } from "../../../lib/security";
 
 export async function GET(req) {
   if (!rateLimit(`air:${clientKey(req)}`)) {
@@ -8,7 +8,7 @@ export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const lat = finiteNum(searchParams.get("lat"));
   const lon = finiteNum(searchParams.get("lon"));
-  if (lat == null || lon == null) return jsonCached({ air: null }, 60);
+  if (!validCoord(lat, lon)) return jsonCached({ air: null }, 60);
 
   const key = `air:${lat.toFixed(2)}:${lon.toFixed(2)}`;
   const hit = cacheGet(key);
